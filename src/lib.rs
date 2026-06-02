@@ -34,9 +34,31 @@ pub struct TextureDesc {
 
 #[derive(Clone)]
 pub struct FrameGraphTexture {
-    last_access: vk_sync::AccessType,
+    last_access: TextureAccess,
     allocation: Option<Arc<Allocation>>,
     image: vk::Image,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum TextureAccess {
+    ColorWrite,
+    DepthWrite,
+    DepthRead,
+    VertexRead,
+    FragmentRead,
+    ComputeRead,
+    ComputeWrite,
+    TransferSrc,
+    TransferDst,
+    Present,
+    Undefined,
+}
+
+pub enum BufferAccess {
+    StorageWrite,
+    StorageRead,
+    IndirectWrite,
+    IndirectRead
 }
 
 pub struct FrameScope<'a> {
@@ -44,15 +66,17 @@ pub struct FrameScope<'a> {
     /// current frame handle -> texture
     texture_handles: SlotMap<Key, FrameGraphTexture>,
     imported_textures: Vec<FrameGraphTexture>,
-    exported_textures: Vec<(Handle<FrameGraphTexture>, vk_sync::AccessType)>,
+    exported_textures: Vec<(Handle<FrameGraphTexture>, TextureAccess)>,
     compiled_passes: Vec<CompiledPass<'a>>,
     execution_order: Vec<usize>,
     pass_descs: Vec<Pass<'a>>,
+    is_compiled: bool,
 }
 
 impl<'a> FrameScope<'a> {
     pub fn new(graph: &'a mut FrameGraph) -> Self {
         Self { 
+            is_compiled: false,
             graph,
             texture_handles: SlotMap::with_key(), 
             imported_textures: vec![], 
@@ -122,7 +146,7 @@ impl<'a> FrameScope<'a> {
         };
 
         let frame_texture = FrameGraphTexture {
-            last_access: vk_sync::AccessType::Nothing,
+            last_access: TextureAccess::Undefined,
             allocation: Some(Arc::new(allocation)),
             image
         };
@@ -137,7 +161,7 @@ impl<'a> FrameScope<'a> {
         }
     }
 
-    pub fn import(&mut self, image: vk::Image, current_access: vk_sync::AccessType) -> Handle<FrameGraphTexture> {
+    pub fn import(&mut self, image: vk::Image, current_access: TextureAccess) -> Handle<FrameGraphTexture> {
         let frame_texture = FrameGraphTexture {
             last_access: current_access,
             allocation: None,
@@ -153,7 +177,7 @@ impl<'a> FrameScope<'a> {
         }
     }
 
-    pub fn export(&mut self, handle: Handle<FrameGraphTexture>, access: vk_sync::AccessType) -> vk::Image {
+    pub fn export(&mut self, handle: Handle<FrameGraphTexture>, access: TextureAccess) -> vk::Image {
         let tex = self.texture_handles.get(handle.key).unwrap();
         self.exported_textures.push((handle, access));
         tex.image
@@ -215,8 +239,8 @@ impl<'a> FrameScope<'a> {
             for (handle, required_access) in &pass.reads {
                 let tex = self.texture_handles.get_mut(handle.key).unwrap();
 
-                let (src_stage, src_access, src_layout) = access_to_sync2(tex.last_access);
-                let (dst_stage, dst_access, dst_layout) = access_to_sync2(*required_access);
+                let (src_stage, src_access, src_layout) = match_access(tex.last_access);
+                let (dst_stage, dst_access, dst_layout) = match_access(*required_access);
 
                 if src_layout == dst_layout && tex.last_access == *required_access {
                     continue;
@@ -249,8 +273,8 @@ impl<'a> FrameScope<'a> {
             for (handle, required_access) in &pass.writes {
                 let tex = self.texture_handles.get_mut(handle.key).unwrap();
 
-                let (src_stage, src_access, src_layout) = access_to_sync2(tex.last_access);
-                let (dst_stage, dst_access, dst_layout) = access_to_sync2(*required_access);
+                let (src_stage, src_access, src_layout) = match_access(tex.last_access);
+                let (dst_stage, dst_access, dst_layout) = match_access(*required_access);
 
                 if src_layout == dst_layout && tex.last_access == *required_access {
                     continue;
@@ -283,8 +307,8 @@ impl<'a> FrameScope<'a> {
             for (handle, required_access) in &self.exported_textures {
                 let tex = self.texture_handles.get_mut(handle.key).unwrap();
 
-                let (src_stage, src_access, src_layout) = access_to_sync2(tex.last_access);
-                let (dst_stage, dst_access, dst_layout) = access_to_sync2(*required_access);
+                let (src_stage, src_access, src_layout) = match_access(tex.last_access);
+                let (dst_stage, dst_access, dst_layout) = match_access(*required_access);
 
                 if src_layout == dst_layout && tex.last_access == *required_access {
                     continue;
@@ -342,11 +366,17 @@ impl<'a> FrameScope<'a> {
             self.execution_order.push(export_idx);
         }
 
+        self.is_compiled = true;
         self.pass_descs.clear();
         self.compiled_passes = compiled_passes;
     }
 
     pub fn execute(&mut self, cmd: vk::CommandBuffer) {
+
+        if !self.is_compiled {
+            self.compile();
+        }
+
         for index in &self.execution_order {
             let pass = &mut self.compiled_passes[*index];
 
@@ -465,8 +495,8 @@ impl<'a> PassResources<'a> {
 
 pub struct Pass<'a> {
     name: String,
-    reads: Vec<(Handle<FrameGraphTexture>, vk_sync::AccessType)>,
-    writes: Vec<(Handle<FrameGraphTexture>, vk_sync::AccessType)>,
+    reads: Vec<(Handle<FrameGraphTexture>, TextureAccess)>,
+    writes: Vec<(Handle<FrameGraphTexture>, TextureAccess)>,
     callback: Option<Box<dyn FnOnce(&ash::Device, vk::CommandBuffer, PassResources) + 'a>>
 }
 
@@ -498,12 +528,12 @@ impl<'a> Pass<'a> {
         self
     }
 
-    pub fn read(mut self, handle: Handle<FrameGraphTexture>, access: vk_sync::AccessType) -> Self {
+    pub fn read(mut self, handle: Handle<FrameGraphTexture>, access: TextureAccess) -> Self {
         self.reads.push((handle, access));
         self
     }
 
-    pub fn write(mut self, handle: Handle<FrameGraphTexture>, access: vk_sync::AccessType) -> Self {
+    pub fn write(mut self, handle: Handle<FrameGraphTexture>, access: TextureAccess) -> Self {
         self.writes.push((handle, access));
         self
     }
@@ -514,96 +544,66 @@ impl<'a> Pass<'a> {
     }
 }
 
-fn access_to_sync2(
-    access: vk_sync::AccessType,
-) -> (vk::PipelineStageFlags2, vk::AccessFlags2, vk::ImageLayout) {
+
+fn match_access(access: TextureAccess) -> (vk::PipelineStageFlags2, vk::AccessFlags2, vk::ImageLayout) {
     match access {
-        vk_sync::AccessType::Nothing => (
-            vk::PipelineStageFlags2::NONE,
-            vk::AccessFlags2::NONE,
-            vk::ImageLayout::UNDEFINED,
-        ),
-        vk_sync::AccessType::ColorAttachmentWrite => (
-            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        ),
-        vk_sync::AccessType::ColorAttachmentReadWrite => (
-            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-            vk::AccessFlags2::COLOR_ATTACHMENT_READ | vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        ),
-        vk_sync::AccessType::DepthStencilAttachmentWrite => (
-            vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS | vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
-            vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
-            vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        ),
-        vk_sync::AccessType::DepthStencilAttachmentRead => (
-            vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS | vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
-            vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ,
-            vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        ),
-        vk_sync::AccessType::FragmentShaderReadSampledImageOrUniformTexelBuffer => (
-            vk::PipelineStageFlags2::FRAGMENT_SHADER,
-            vk::AccessFlags2::SHADER_READ,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        ),
-        vk_sync::AccessType::FragmentShaderReadDepthStencilInputAttachment => (
-            vk::PipelineStageFlags2::FRAGMENT_SHADER,
-            vk::AccessFlags2::INPUT_ATTACHMENT_READ,
-            vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        ),
-        vk_sync::AccessType::FragmentShaderReadColorInputAttachment => (
-            vk::PipelineStageFlags2::FRAGMENT_SHADER,
-            vk::AccessFlags2::INPUT_ATTACHMENT_READ,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        ),
-        vk_sync::AccessType::FragmentShaderWrite => (
-            vk::PipelineStageFlags2::FRAGMENT_SHADER,
-            vk::AccessFlags2::SHADER_WRITE,
-            vk::ImageLayout::GENERAL,
-        ),
-        vk_sync::AccessType::ComputeShaderReadSampledImageOrUniformTexelBuffer => (
-            vk::PipelineStageFlags2::COMPUTE_SHADER,
-            vk::AccessFlags2::SHADER_READ,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        ),
-        vk_sync::AccessType::ComputeShaderWrite => (
-            vk::PipelineStageFlags2::COMPUTE_SHADER,
-            vk::AccessFlags2::SHADER_WRITE,
-            vk::ImageLayout::GENERAL,
-        ),
-        vk_sync::AccessType::AnyShaderReadSampledImageOrUniformTexelBuffer => (
-            vk::PipelineStageFlags2::ALL_GRAPHICS | vk::PipelineStageFlags2::COMPUTE_SHADER,
-            vk::AccessFlags2::SHADER_READ,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        ),
-        vk_sync::AccessType::AnyShaderWrite => (
-            vk::PipelineStageFlags2::ALL_GRAPHICS | vk::PipelineStageFlags2::COMPUTE_SHADER,
-            vk::AccessFlags2::SHADER_WRITE,
-            vk::ImageLayout::GENERAL,
-        ),
-        vk_sync::AccessType::TransferWrite => (
-            vk::PipelineStageFlags2::TRANSFER,
-            vk::AccessFlags2::TRANSFER_WRITE,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-        ),
-        vk_sync::AccessType::TransferRead => (
-            vk::PipelineStageFlags2::TRANSFER,
-            vk::AccessFlags2::TRANSFER_READ,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-        ),
-        vk_sync::AccessType::Present => (
-            vk::PipelineStageFlags2::NONE,
-            vk::AccessFlags2::NONE,
-            vk::ImageLayout::PRESENT_SRC_KHR,
-        ),
-        vk_sync::AccessType::General => (
-            vk::PipelineStageFlags2::ALL_COMMANDS,
-            vk::AccessFlags2::MEMORY_READ | vk::AccessFlags2::MEMORY_WRITE,
-            vk::ImageLayout::GENERAL,
-        ),
-        _ => unimplemented!("access type not mapped: {:?}", access),
+        TextureAccess::Present => {
+            (
+                vk::PipelineStageFlags2::NONE,
+                vk::AccessFlags2::NONE,
+                vk::ImageLayout::PRESENT_SRC_KHR
+            )
+        },
+        TextureAccess::Undefined => {
+            (
+                vk::PipelineStageFlags2::NONE,
+                vk::AccessFlags2::NONE,
+                vk::ImageLayout::UNDEFINED
+            )
+        },
+        TextureAccess::VertexRead => {
+            (
+                vk::PipelineStageFlags2::VERTEX_SHADER,
+                vk::AccessFlags2::SHADER_READ,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+            )
+        },
+        TextureAccess::FragmentRead => {
+            (
+                vk::PipelineStageFlags2::FRAGMENT_SHADER,
+                vk::AccessFlags2::SHADER_READ,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+            )
+        },
+        TextureAccess::ComputeRead => {
+            (
+                vk::PipelineStageFlags2::COMPUTE_SHADER,
+                vk::AccessFlags2::SHADER_READ,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+            )
+        },
+        TextureAccess::ComputeWrite => {
+            (
+                vk::PipelineStageFlags2::COMPUTE_SHADER,
+                vk::AccessFlags2::SHADER_WRITE,
+                vk::ImageLayout::GENERAL
+            )
+        },
+        TextureAccess::ColorWrite => {
+            (
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+            )
+        },
+        TextureAccess::DepthWrite => {
+            (
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+            )
+        },
+        _ => unimplemented!("TODO!")
     }
 }
 
@@ -618,5 +618,29 @@ mod tests {
 
         let sorted = FrameScope::topological_sort(&dependencies);
         assert_eq!(sorted, vec![0]);
+    }
+
+    #[test]
+    fn test_access() {
+        let (flags1, access1, layout1) = match_access(TextureAccess::ColorWrite);
+        let (flags2, access2, layout2) = match_access(TextureAccess::FragmentRead);
+
+        assert!(
+            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT == flags1 &&
+            vk::PipelineStageFlags2::FRAGMENT_SHADER == flags2,
+            "Mismatch Stage"
+        );
+
+        assert!(
+            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE == access1 &&
+            vk::AccessFlags2::SHADER_READ == access2,
+            "Mismatch AccessFlags"
+        );
+
+        assert!(
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL == layout1 &&
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL == layout2,
+            "Mismatch Layout"
+        );
     }
 }

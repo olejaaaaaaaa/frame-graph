@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"    
 repository = "https://github.com/olejaaaaaaaa/frame-graph"
 keywords = ["frame-graph", "vulkan", "rendering"]
-categories = ["gpu-tools"]
+categories = ["graphics"]
 
 [features]
 default = []
@@ -18,4 +18,3 @@ thiserror = { version = "2.0", default-features = false }
 ash = "0.38.0"
 gpu-allocator = { version = "0.28.0", features = ["vulkan"] }
 slotmap = "1.1.1"
-vk-sync = "0.1.6"
