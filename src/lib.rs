@@ -413,7 +413,10 @@ impl<'a> FrameScope<'a> {
 /// Required Sync2
 pub struct FrameGraph {
     device: ash::Device,
+    #[cfg(not(feature = "parking_lot"))]
     allocator: Arc<Mutex<Allocator>>,
+    #[cfg(feature = "parking_lot")]
+    allocator: Arc<parking_lot::Mutex<Allocator>>,
     current_frame: usize,
     frame_in_flight: usize,
     // index of frame -> list of free transient textures
@@ -421,6 +424,7 @@ pub struct FrameGraph {
 }
 
 impl Drop for FrameGraph {
+    #[cfg(not(feature = "parking_lot"))]
     fn drop(&mut self) {
         // We are waiting for the gpu to finish working with all the images
         match unsafe { self.device.device_wait_idle() } {
@@ -456,10 +460,18 @@ impl Drop for FrameGraph {
             }
         }
     }
+
+    #[cfg(feature = "parking_lot")]
+    fn drop(&mut self) {
+        
+    }
 }
 
 pub struct FrameGraphCreateDesc {
+    #[cfg(not(feature = "parking_lot"))]
     pub allocator: Arc<Mutex<Allocator>>,
+    #[cfg(feature = "parking_lot")]
+    pub allocator: Arc<parking_lot::Mutex<Allocator>>,
     pub frame_in_flight: usize,
     pub device: ash::Device,
 }
