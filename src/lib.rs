@@ -610,9 +610,9 @@ fn match_access(access: TextureAccess) -> (vk::PipelineStageFlags2, vk::AccessFl
         },
         TextureAccess::DepthWrite => {
             (
-                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS | vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
                 vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+                vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
             )
         },
         _ => unimplemented!("TODO!")
