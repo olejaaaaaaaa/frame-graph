@@ -246,6 +246,12 @@ impl<'a> FrameScope<'a> {
                     continue;
                 }
 
+                let mask = if *required_access == TextureAccess::DepthRead || *required_access == TextureAccess::DepthWrite {
+                    vk::ImageAspectFlags::DEPTH
+                } else {
+                    vk::ImageAspectFlags::COLOR
+                };
+
                 image_barriers.push(
                     vk::ImageMemoryBarrier2::default()
                         .src_stage_mask(src_stage)
@@ -257,7 +263,7 @@ impl<'a> FrameScope<'a> {
                         .image(tex.image)
                         .subresource_range(
                             vk::ImageSubresourceRange::default()
-                                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                                .aspect_mask(mask)
                                 .base_mip_level(0)
                                 .level_count(1)
                                 .base_array_layer(0)
@@ -280,6 +286,12 @@ impl<'a> FrameScope<'a> {
                     continue;
                 }
 
+                let mask = if *required_access == TextureAccess::DepthRead || *required_access == TextureAccess::DepthWrite {
+                    vk::ImageAspectFlags::DEPTH
+                } else {
+                    vk::ImageAspectFlags::COLOR
+                };
+
                 image_barriers.push(
                     vk::ImageMemoryBarrier2::default()
                         .src_stage_mask(src_stage)
@@ -291,7 +303,7 @@ impl<'a> FrameScope<'a> {
                         .image(tex.image)
                         .subresource_range(
                             vk::ImageSubresourceRange::default()
-                                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                                .aspect_mask(mask)
                                 .base_mip_level(0)
                                 .level_count(1)
                                 .base_array_layer(0)
@@ -314,6 +326,12 @@ impl<'a> FrameScope<'a> {
                     continue;
                 }
 
+                let mask = if *required_access == TextureAccess::DepthRead || *required_access == TextureAccess::DepthWrite {
+                    vk::ImageAspectFlags::DEPTH
+                } else {
+                    vk::ImageAspectFlags::COLOR
+                };
+
                 export_image_barriers.push(
                     vk::ImageMemoryBarrier2::default()
                         .src_stage_mask(src_stage)
@@ -325,7 +343,7 @@ impl<'a> FrameScope<'a> {
                         .image(tex.image)
                         .subresource_range(
                             vk::ImageSubresourceRange::default()
-                                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                                .aspect_mask(mask)
                                 .base_mip_level(0)
                                 .level_count(1)
                                 .base_array_layer(0)
