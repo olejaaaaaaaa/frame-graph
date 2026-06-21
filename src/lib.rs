@@ -515,6 +515,7 @@ impl<'a> FrameScope<'a> {
 
         self.graph.current_frame += 1;
         self.resolved_textures.clear();
+        self.exported_textures.clear();
 
         Ok(())
     }
