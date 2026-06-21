@@ -79,7 +79,7 @@ compile_error!("Feature \"parking_lot\" with \"vk-mem\" incompatible for this cr
 pub(crate) type GpuAllocator = Arc<std::sync::Mutex<gpu_allocator::vulkan::Allocator>>;
 
 #[cfg(all(feature = "parking_lot", feature = "gpu-allocator"))]
-pub(crate) type GpuAllocator = Arc<parking_lot::Mutex<Allocator>>;
+pub(crate) type GpuAllocator = Arc<parking_lot::Mutex<gpu_allocator::vulkan::Allocator>>;
 
 #[cfg(feature = "gpu-allocator")]
 type GpuAllocation = gpu_allocator::vulkan::Allocation;
