@@ -1,4 +1,8 @@
-
+#[derive(Debug)]
 pub enum FrameGraphError {
-    AllocationTransientTexure
+    Allocation,
+    CreateVkImage,
+    BindVkImage,
 }
+
+pub type Result<T> = std::result::Result<T, FrameGraphError>;

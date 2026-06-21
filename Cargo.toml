@@ -1,6 +1,6 @@
 [package]
 name = "frame-graph"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "thin frame-graph"
 license = "MIT OR Apache-2.0"
@@ -10,13 +10,17 @@ keywords = ["frame-graph", "vulkan", "rendering"]
 categories = ["graphics"]
 
 [features]
-default = []
+default = ["gpu-allocator"]
 parking_lot = ["dep:parking_lot"]
+gpu-allocator = ["dep:gpu-allocator"]
+vk-mem = ["dep:vk-mem"]
+parallel = []
 
 [dependencies]
 log = { version = "0.4", default-features = false }
 thiserror = { version = "2.0", default-features = false }
 ash = "0.38.0"
-gpu-allocator = { version = "0.28.0", features = ["vulkan"] }
+gpu-allocator = { version = "0.28.0", features = ["vulkan"], optional = true}
 slotmap = "1.1.1"
 parking_lot = { version = "0.12.5", optional = true }
+vk-mem = { version = "0.5.0", optional = true }
