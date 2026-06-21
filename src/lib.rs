@@ -202,10 +202,12 @@ impl<'a> FrameScope<'a> {
         }
     }
 
-    pub fn export_texture(&mut self, handle: Handle<FrameGraphTexture>, output_access: TextureAccess) -> vk::Image {
-        let tex = self.resolved_textures.get(handle.key).unwrap();
+    pub fn export_texture(&mut self, handle: Handle<FrameGraphTexture>, output_access: TextureAccess) {
         self.exported_textures.push((handle, output_access));
-        tex.image
+    }
+
+    pub fn resolved_image(&self, handle: Handle<FrameGraphTexture>) -> vk::Image {
+        self.resolved_textures.get(handle.key).expect("Not found image").image
     }
 
     pub fn import_buffer(&mut self, buffer: vk::Buffer, current_access: BufferAccess) -> Handle<FrameGraphBuffer> {
