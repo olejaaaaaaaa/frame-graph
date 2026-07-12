@@ -598,7 +598,7 @@ impl<'a> Pass<'a> {
         }
     }
 
-    pub fn color_attachment(
+    fn color_attachment(
         mut self,
         handle: Handle<FrameGraphTexture>,
         load: vk::AttachmentLoadOp,
@@ -607,7 +607,7 @@ impl<'a> Pass<'a> {
         self
     }
 
-    pub fn depth_attachment(mut self, handle: Handle<FrameGraphTexture>) -> Self {
+    fn depth_attachment(mut self, handle: Handle<FrameGraphTexture>) -> Self {
         self
     }
 

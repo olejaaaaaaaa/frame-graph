@@ -13,7 +13,7 @@ categories = ["graphics"]
 default = ["gpu-allocator"]
 parking_lot = ["dep:parking_lot"]
 gpu-allocator = ["dep:gpu-allocator"]
-vk-mem = ["dep:vk-mem"]
+# vk-mem = ["dep:vk-mem"]
 parallel = []
 
 [dependencies]
