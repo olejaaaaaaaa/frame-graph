@@ -72,7 +72,7 @@ impl Drop for FrameGraph {
                                                     }
                                                 }
                                             });
-                                    });   
+                                    });
                             });
                     }
                     Err(err) => {
@@ -99,7 +99,7 @@ impl Drop for FrameGraph {
                                                 }
                                             }
                                         });
-                                });   
+                                });
                         });
                 }
             }
