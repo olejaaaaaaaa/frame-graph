@@ -12,7 +12,7 @@ pub use types::*;
 mod error;
 use error::*;
 
-/// Required extensions: 
+/// Required extensions:
 ///     - `VK_KHR_synchronization2`
 ///     - `VK_KHR_dynamic_rendering`
 pub struct FrameGraph {
@@ -48,7 +48,6 @@ impl FrameGraph {
 }
 
 impl Drop for FrameGraph {
-    
     #[cfg(feature = "gpu-allocator")]
     fn drop(&mut self) {
         // We are waiting for the gpu to finish working with all the images
@@ -75,7 +74,7 @@ impl Drop for FrameGraph {
                                             });
                                     });   
                             });
-                    },
+                    }
                     Err(err) => {
                         log::error!("Failed to lock allocator mutex: {:?}", err)
                     }
@@ -103,7 +102,7 @@ impl Drop for FrameGraph {
                                 });   
                         });
                 }
-            },
+            }
             Err(err) => {
                 log::error!("Failed to wait for device idle: {:?} - memory leaks", err)
             }
@@ -111,9 +110,7 @@ impl Drop for FrameGraph {
     }
 
     #[cfg(feature = "vk-mem")]
-    fn drop(&mut self) {
-        
-    }
+    fn drop(&mut self) {}
 }
 
 pub struct FrameScope<'a> {
@@ -137,84 +134,79 @@ pub struct FrameScope<'a> {
 
 impl<'a> FrameScope<'a> {
     pub fn new(graph: &'a mut FrameGraph) -> Self {
-        Self { 
+        Self {
             is_compiled: false,
             graph,
             texture_registry: SlotMap::with_key(),
-            resolved_textures: SecondaryMap::new(), 
-            exported_textures: vec![], 
-            compiled_passes: vec![], 
-            execution_order: vec![], 
+            resolved_textures: SecondaryMap::new(),
+            exported_textures: vec![],
+            compiled_passes: vec![],
+            execution_order: vec![],
             pass_descs: vec![],
         }
     }
-    
+
     /// Create transient texture
     pub fn create_texture(&mut self, desc: TextureDesc) -> Handle<FrameGraphTexture> {
         let key = self.texture_registry.insert(ResourceState::Transient(desc));
-        return Handle { 
-            key, 
-            _marker: PhantomData 
+        return Handle {
+            key,
+            _marker: PhantomData,
         };
     }
 
     /// Import texture into graph
-    pub fn import_texture(&mut self, image: vk::Image, current_access: TextureAccess, subresource_range: Option<vk::ImageSubresourceRange>) -> Handle<FrameGraphTexture> {
-
-        let subresource_range = if let Some(range) = subresource_range {
-            range
-        } else {
-            let mask = match current_access {
-                TextureAccess::ColorWrite => vk::ImageAspectFlags::COLOR,
-                TextureAccess::DepthWrite | TextureAccess::DepthRead => vk::ImageAspectFlags::DEPTH,
-                TextureAccess::Present => vk::ImageAspectFlags::COLOR,
-                TextureAccess::VertexRead
-                | TextureAccess::FragmentRead
-                | TextureAccess::ComputeRead
-                | TextureAccess::ComputeWrite
-                | TextureAccess::TransferSrc
-                | TextureAccess::TransferDst
-                | TextureAccess::Undefined => {
-                    panic!("Can't infer aspect mask from access {:?}, pass subresource_range explicitly", current_access)
-                }, 
-            };
-
-            vk::ImageSubresourceRange::default()
-                .aspect_mask(mask)
-                .base_mip_level(0)
-                .level_count(1)
-                .base_array_layer(0)
-                .layer_count(1)
-        };
-
+    pub fn import_texture(
+        &mut self,
+        image: vk::Image,
+        current_access: TextureAccess,
+        subresource_range: vk::ImageSubresourceRange,
+    ) -> Handle<FrameGraphTexture> {
         let texture = FrameGraphTexture {
             last_access: current_access,
-            subresource_range: subresource_range,
+            subresource_range,
             allocation: None,
-            image
+            image,
         };
 
-        let key = self.texture_registry.insert(ResourceState::Imported(texture));
+        let key = self
+            .texture_registry
+            .insert(ResourceState::Imported(texture));
 
-        Handle { 
-            key, 
-            _marker: PhantomData 
+        Handle {
+            key,
+            _marker: PhantomData,
         }
     }
 
-    pub fn export_texture(&mut self, handle: Handle<FrameGraphTexture>, output_access: TextureAccess) {
+    pub fn export_texture(
+        &mut self,
+        handle: Handle<FrameGraphTexture>,
+        output_access: TextureAccess,
+    ) {
         self.exported_textures.push((handle, output_access));
     }
 
     pub fn resolved_image(&self, handle: Handle<FrameGraphTexture>) -> vk::Image {
-        self.resolved_textures.get(handle.key).expect("Not found image").image
+        self.resolved_textures
+            .get(handle.key)
+            .expect(&format!("Not found image with handle: {:?}", handle))
+            .image
     }
 
-    pub fn import_buffer(&mut self, buffer: vk::Buffer, current_access: BufferAccess) -> Handle<FrameGraphBuffer> {
+    fn import_buffer(
+        &mut self,
+        buffer: vk::Buffer,
+        current_access: BufferAccess,
+    ) -> Handle<FrameGraphBuffer> {
         todo!()
     }
 
-    pub fn export_buffer(&mut self, handle: Handle<FrameGraphBuffer>, output_access: TextureAccess) -> vk::Buffer {
+    fn export_buffer(
+        &mut self,
+        handle: Handle<FrameGraphBuffer>,
+        output_access: BufferAccess,
+    ) -> vk::Buffer {
         todo!()
     }
 
@@ -241,7 +233,7 @@ impl<'a> FrameScope<'a> {
 
         result
     }
-    
+
     pub fn sorting_passes(passes: &Vec<Pass>) -> Vec<usize> {
         let mut dependencies: Vec<Vec<usize>> = vec![vec![]; passes.len()];
 
@@ -259,7 +251,6 @@ impl<'a> FrameScope<'a> {
     }
 
     pub fn compile(&mut self) -> Result<()> {
-
         let indices = Self::sorting_passes(&self.pass_descs);
         self.execution_order = indices.clone();
 
@@ -267,17 +258,19 @@ impl<'a> FrameScope<'a> {
         let idx = (self.graph.current_frame + 1) % self.graph.frame_in_flight;
 
         for (key, desc) in self.texture_registry.drain() {
-
             // transient textures for current frame
-            let transient_textures = self.graph.transient_textures.entry(idx)
+            let transient_textures = self
+                .graph
+                .transient_textures
+                .entry(idx)
                 .or_insert(HashMap::new());
 
             match desc {
                 ResourceState::Imported(texture) => {
                     self.resolved_textures.insert(key, texture);
-                },
+                }
                 ResourceState::Transient(desc) => {
-                     // all textures for this desc
+                    // all textures for this desc
                     let textures = transient_textures.entry(desc).or_insert(vec![]);
 
                     // find texture
@@ -288,7 +281,7 @@ impl<'a> FrameScope<'a> {
                             continue;
                         }
                     }
-                    
+
                     let image = unsafe {
                         let create_info: vk::ImageCreateInfo<'_> = vk::ImageCreateInfo::default()
                             .format(desc.format)
@@ -299,12 +292,11 @@ impl<'a> FrameScope<'a> {
                             .tiling(vk::ImageTiling::OPTIMAL)
                             .usage(desc.usage);
 
-                            self.graph.device
-                                .create_image(&create_info, None)
-                                .unwrap()
+                        self.graph.device.create_image(&create_info, None).unwrap()
                     };
 
-                    let requirements = unsafe { self.graph.device.get_image_memory_requirements(image) };
+                    let requirements =
+                        unsafe { self.graph.device.get_image_memory_requirements(image) };
                     let mut allocator = self.graph.gpu_allocator.try_lock().unwrap();
 
                     let alloc_desc = AllocationCreateDesc {
@@ -317,15 +309,19 @@ impl<'a> FrameScope<'a> {
 
                     let allocation = allocator.allocate(&alloc_desc).unwrap();
 
-                    unsafe { 
-                        self.graph.device
+                    unsafe {
+                        self.graph
+                            .device
                             .bind_image_memory(image, allocation.memory(), allocation.offset())
-                            .unwrap() 
+                            .unwrap()
                     };
 
                     let mask = if desc.usage.contains(vk::ImageUsageFlags::COLOR_ATTACHMENT) {
                         vk::ImageAspectFlags::COLOR
-                    } else if desc.usage.contains(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT) {
+                    } else if desc
+                        .usage
+                        .contains(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
+                    {
                         vk::ImageAspectFlags::DEPTH
                     } else {
                         panic!("unsupported texture usage flags: {:?}", desc.usage)
@@ -340,7 +336,7 @@ impl<'a> FrameScope<'a> {
                             .base_array_layer(0)
                             .layer_count(1),
                         allocation: Some(Arc::new(allocation)),
-                        image
+                        image,
                     };
 
                     textures.push((true, texture.clone()));
@@ -438,17 +434,17 @@ impl<'a> FrameScope<'a> {
                 tex.last_access = *required_access;
             }
 
-            compiled_passes.push(CompiledPass { 
+            compiled_passes.push(CompiledPass {
                 before_execute: Some(Box::new(move |device, cmd, _| {
-                    unsafe { 
-                        let dep_info = vk::DependencyInfoKHR::default()
-                            .image_memory_barriers(&image_barriers);
+                    unsafe {
+                        let dep_info =
+                            vk::DependencyInfoKHR::default().image_memory_barriers(&image_barriers);
 
                         device.cmd_pipeline_barrier2(cmd, &dep_info);
                     };
-                })), 
-                execute: pass.callback.take(), 
-                after_execute: None
+                })),
+                execute: pass.callback.take(),
+                after_execute: None,
             });
         }
 
@@ -458,8 +454,8 @@ impl<'a> FrameScope<'a> {
                 before_execute: None,
                 execute: None,
                 after_execute: Some(Box::new(move |device, cmd, _| unsafe {
-                    let dep_info = vk::DependencyInfo::default()
-                        .image_memory_barriers(&export_image_barriers);
+                    let dep_info =
+                        vk::DependencyInfo::default().image_memory_barriers(&export_image_barriers);
                     device.cmd_pipeline_barrier2(cmd, &dep_info);
                 })),
             });
@@ -473,8 +469,7 @@ impl<'a> FrameScope<'a> {
         Ok(())
     }
 
-    pub fn execute_parallel(&mut self, secondary_cmds: &[vk::CommandBuffer]) -> Result<()> {
-
+    fn execute_parallel(&mut self, secondary_cmds: &[vk::CommandBuffer]) -> Result<()> {
         if !self.is_compiled {
             self.compile()?;
         }
@@ -483,10 +478,9 @@ impl<'a> FrameScope<'a> {
     }
 
     /// Execute all passes
-    /// 
+    ///
     /// Compile passes if before not compiled
     pub fn execute(&mut self, cmd: vk::CommandBuffer) -> Result<()> {
-
         if !self.is_compiled {
             self.compile()?;
         }
@@ -495,15 +489,33 @@ impl<'a> FrameScope<'a> {
             let pass = &mut self.compiled_passes[*index];
 
             if let Some(before_execute) = pass.before_execute.take() {
-                before_execute(&self.graph.device, cmd, PassResources { resources: &self.resolved_textures });
+                before_execute(
+                    &self.graph.device,
+                    cmd,
+                    PassResources {
+                        resources: &self.resolved_textures,
+                    },
+                );
             }
 
             if let Some(execute) = pass.execute.take() {
-                execute(&self.graph.device, cmd, PassResources { resources: &self.resolved_textures });
+                execute(
+                    &self.graph.device,
+                    cmd,
+                    PassResources {
+                        resources: &self.resolved_textures,
+                    },
+                );
             }
 
             if let Some(after_execute) = pass.after_execute.take() {
-                after_execute(&self.graph.device, cmd, PassResources { resources: &self.resolved_textures });
+                after_execute(
+                    &self.graph.device,
+                    cmd,
+                    PassResources {
+                        resources: &self.resolved_textures,
+                    },
+                );
             }
         }
 
@@ -531,11 +543,11 @@ impl<'a> FrameScope<'a> {
 struct CompiledPass<'a> {
     before_execute: Option<Box<dyn FnOnce(&ash::Device, vk::CommandBuffer, PassResources) + 'a>>,
     execute: Option<Box<dyn FnOnce(&ash::Device, vk::CommandBuffer, PassResources) + 'a>>,
-    after_execute: Option<Box<dyn FnOnce(&ash::Device, vk::CommandBuffer, PassResources) + 'a>>
+    after_execute: Option<Box<dyn FnOnce(&ash::Device, vk::CommandBuffer, PassResources) + 'a>>,
 }
 
 pub struct PassResources<'a> {
-    resources: &'a SecondaryMap<Key, FrameGraphTexture>
+    resources: &'a SecondaryMap<Key, FrameGraphTexture>,
 }
 
 impl<'a> PassResources<'a> {
@@ -549,15 +561,29 @@ pub struct Pass<'a> {
     name: String,
     reads: Vec<(Handle<FrameGraphTexture>, TextureAccess)>,
     writes: Vec<(Handle<FrameGraphTexture>, TextureAccess)>,
-    callback: Option<Box<dyn FnOnce(&ash::Device, vk::CommandBuffer, PassResources) + 'a>>
+    callback: Option<Box<dyn FnOnce(&ash::Device, vk::CommandBuffer, PassResources) + 'a>>,
 }
 
 impl std::fmt::Debug for Pass<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Pass")
             .field("name", &self.name)
-            .field("reads", &self.reads.iter().map(|(h, a)| (h.key, a)).collect::<Vec<_>>())
-            .field("writes", &self.writes.iter().map(|(h, a)| (h.key, a)).collect::<Vec<_>>())
+            .field(
+                "reads",
+                &self
+                    .reads
+                    .iter()
+                    .map(|(h, a)| (h.key, a))
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "writes",
+                &self
+                    .writes
+                    .iter()
+                    .map(|(h, a)| (h.key, a))
+                    .collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
@@ -568,11 +594,16 @@ impl<'a> Pass<'a> {
             callback: None,
             reads: vec![],
             writes: vec![],
-            name: name.into()
+            name: name.into(),
         }
     }
 
-    pub fn color_attachment(mut self, handle: Handle<FrameGraphTexture>, load: vk::AttachmentLoadOp, store: vk::AttachmentStoreOp) -> Self {
+    pub fn color_attachment(
+        mut self,
+        handle: Handle<FrameGraphTexture>,
+        load: vk::AttachmentLoadOp,
+        store: vk::AttachmentStoreOp,
+    ) -> Self {
         self
     }
 
@@ -590,69 +621,76 @@ impl<'a> Pass<'a> {
         self
     }
 
-    pub fn execute(mut self, callback: impl FnOnce(&ash::Device, vk::CommandBuffer, PassResources<'_>) + 'a) -> Self {
+    pub fn execute(
+        mut self,
+        callback: impl FnOnce(&ash::Device, vk::CommandBuffer, PassResources<'_>) + 'a,
+    ) -> Self {
         self.callback = Some(Box::new(callback));
         self
     }
 }
 
-fn match_access(access: TextureAccess) -> (vk::PipelineStageFlags2, vk::AccessFlags2, vk::ImageLayout) {
+fn match_access(
+    access: TextureAccess,
+) -> (vk::PipelineStageFlags2, vk::AccessFlags2, vk::ImageLayout) {
     match access {
         TextureAccess::Present => (
             vk::PipelineStageFlags2::NONE,
             vk::AccessFlags2::NONE,
-            vk::ImageLayout::PRESENT_SRC_KHR
+            vk::ImageLayout::PRESENT_SRC_KHR,
         ),
         TextureAccess::Undefined => (
             vk::PipelineStageFlags2::NONE,
             vk::AccessFlags2::NONE,
-            vk::ImageLayout::UNDEFINED
+            vk::ImageLayout::UNDEFINED,
         ),
         TextureAccess::VertexRead => (
             vk::PipelineStageFlags2::VERTEX_SHADER,
             vk::AccessFlags2::SHADER_READ,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         ),
         TextureAccess::FragmentRead => (
             vk::PipelineStageFlags2::FRAGMENT_SHADER,
             vk::AccessFlags2::SHADER_READ,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         ),
         TextureAccess::ComputeRead => (
             vk::PipelineStageFlags2::COMPUTE_SHADER,
             vk::AccessFlags2::SHADER_READ,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         ),
         TextureAccess::DepthRead => (
-            vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS | vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
+            vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS
+                | vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
             vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ,
-            vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL
+            vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,
         ),
         TextureAccess::ComputeWrite => (
             vk::PipelineStageFlags2::COMPUTE_SHADER,
             vk::AccessFlags2::SHADER_WRITE,
-            vk::ImageLayout::GENERAL
+            vk::ImageLayout::GENERAL,
         ),
         TextureAccess::ColorWrite => (
             vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
             vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
         ),
         TextureAccess::DepthWrite => (
-            vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS | vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
+            vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS
+                | vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
             vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
-            vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         ),
         TextureAccess::TransferSrc => (
             vk::PipelineStageFlags2::TRANSFER,
             vk::AccessFlags2::TRANSFER_READ,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
         ),
         TextureAccess::TransferDst => (
             vk::PipelineStageFlags2::TRANSFER,
             vk::AccessFlags2::TRANSFER_WRITE,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL
-        )
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        ),
     }
 }
 
@@ -661,9 +699,7 @@ mod tests {
 
     #[test]
     fn test_topological_sort() {
-        let dependencies = vec![
-            vec![],      
-        ];
+        let dependencies = vec![vec![]];
 
         let sorted = FrameScope::topological_sort(&dependencies);
         assert_eq!(sorted, vec![0]);
@@ -681,20 +717,20 @@ mod tests {
         let (flags2, access2, layout2) = match_access(TextureAccess::FragmentRead);
 
         assert!(
-            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT == flags1 &&
-            vk::PipelineStageFlags2::FRAGMENT_SHADER == flags2,
+            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT == flags1
+                && vk::PipelineStageFlags2::FRAGMENT_SHADER == flags2,
             "Mismatch Stage"
         );
 
         assert!(
-            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE == access1 &&
-            vk::AccessFlags2::SHADER_READ == access2,
+            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE == access1
+                && vk::AccessFlags2::SHADER_READ == access2,
             "Mismatch AccessFlags"
         );
 
         assert!(
-            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL == layout1 &&
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL == layout2,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL == layout1
+                && vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL == layout2,
             "Mismatch Layout"
         );
     }

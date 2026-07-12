@@ -5,7 +5,7 @@ use std::sync::Arc;
 pub struct TextureDesc {
     pub usage: vk::ImageUsageFlags,
     pub format: vk::Format,
-    pub extent: vk::Extent3D
+    pub extent: vk::Extent3D,
 }
 
 #[derive(Clone)]
@@ -41,17 +41,17 @@ pub enum TextureAccess {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum BufferAccess {
     ComputeWrite,
-    ComputeRead
+    ComputeRead,
 }
 
 pub(crate) enum FrameGraphResource {
     Texture(FrameGraphTexture),
-    Buffer(FrameGraphBuffer)
+    Buffer(FrameGraphBuffer),
 }
 
 pub(crate) enum ResourceState {
     Transient(TextureDesc),
-    Imported(FrameGraphTexture)
+    Imported(FrameGraphTexture),
 }
 
 impl From<FrameGraphTexture> for FrameGraphResource {
