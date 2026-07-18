@@ -2,6 +2,7 @@ use ash::vk;
 use gpu_allocator::{MemoryLocation, vulkan::*};
 use slotmap::{SecondaryMap, SlotMap};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use std::collections::{HashSet, VecDeque};
 
 mod handle;
 pub use handle::*;
@@ -215,17 +216,17 @@ impl<'a> FrameScope<'a> {
 
         let mut in_degree: Vec<usize> = dependencies.iter().map(|d| d.len()).collect();
 
-        let mut queue: Vec<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
+        let mut queue: VecDeque<usize> = (0..n).filter(|&i| in_degree[i] == 0).collect();
         let mut result = Vec::with_capacity(n);
 
-        while let Some(node) = queue.pop() {
+        while let Some(node) = queue.pop_front() {
             result.push(node);
 
             for j in 0..n {
                 if dependencies[j].contains(&node) {
                     in_degree[j] -= 1;
                     if in_degree[j] == 0 {
-                        queue.push(j);
+                        queue.push_back(j);
                     }
                 }
             }
@@ -240,14 +241,19 @@ impl<'a> FrameScope<'a> {
         for (i, pass_a) in passes.iter().enumerate() {
             let writes = &pass_a.writes;
             for (j, pass_b) in passes.iter().enumerate() {
-                if i != j && pass_b.reads.iter().any(|r| writes.contains(r)) {
+                if i != j
+                    && pass_b
+                        .reads
+                        .iter()
+                        .any(|(rh, _)| writes.iter().any(|(wh, _)| wh.key == rh.key))
+                    && !dependencies[j].contains(&i)
+                {
                     dependencies[j].push(i);
                 }
             }
         }
 
-        let sorted_indices = Self::topological_sort(&dependencies);
-        sorted_indices
+        Self::topological_sort(&dependencies)
     }
 
     pub fn compile(&mut self) -> Result<()> {
