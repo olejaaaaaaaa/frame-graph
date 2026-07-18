@@ -418,33 +418,6 @@ impl<'a> FrameScope<'a> {
                 tex.last_access = *required_access;
             }
 
-            for (handle, required_access) in &self.exported_textures {
-                let tex = self.resolved_textures.get_mut(handle.key).unwrap();
-
-                let (src_stage, src_access, src_layout) = match_access(tex.last_access);
-                let (dst_stage, dst_access, dst_layout) = match_access(*required_access);
-
-                if src_layout == dst_layout && tex.last_access == *required_access {
-                    continue;
-                }
-
-                export_image_barriers.push(
-                    vk::ImageMemoryBarrier2::default()
-                        .src_stage_mask(src_stage)
-                        .src_access_mask(src_access)
-                        .dst_stage_mask(dst_stage)
-                        .dst_access_mask(dst_access)
-                        .old_layout(src_layout)
-                        .new_layout(dst_layout)
-                        .image(tex.image)
-                        .subresource_range(tex.subresource_range)
-                        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED),
-                );
-
-                tex.last_access = *required_access;
-            }
-
             compiled_passes.push(CompiledPass {
                 before_execute: Some(Box::new(move |device, cmd, _| {
                     unsafe {
@@ -457,6 +430,33 @@ impl<'a> FrameScope<'a> {
                 execute: pass.callback.take(),
                 after_execute: None,
             });
+        }
+
+        for (handle, required_access) in &self.exported_textures {
+            let tex = self.resolved_textures.get_mut(handle.key).unwrap();
+
+            let (src_stage, src_access, src_layout) = match_access(tex.last_access);
+            let (dst_stage, dst_access, dst_layout) = match_access(*required_access);
+
+            if src_layout == dst_layout && tex.last_access == *required_access {
+                continue;
+            }
+
+            export_image_barriers.push(
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(src_stage)
+                    .src_access_mask(src_access)
+                    .dst_stage_mask(dst_stage)
+                    .dst_access_mask(dst_access)
+                    .old_layout(src_layout)
+                    .new_layout(dst_layout)
+                    .image(tex.image)
+                    .subresource_range(tex.subresource_range)
+                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED),
+            );
+
+            tex.last_access = *required_access;
         }
 
         if !export_image_barriers.is_empty() {
