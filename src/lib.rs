@@ -252,6 +252,11 @@ impl<'a> FrameScope<'a> {
 
     pub fn compile(&mut self) -> Result<()> {
         let indices = Self::sorting_passes(&self.pass_descs);
+
+        for i in &indices {
+            println!("Pass: {:?} with index: {}", self.pass_descs[*i], i);
+        }
+        
         self.execution_order = indices.clone();
 
         // next image
